@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="DemoBuild" tests="4"><testcase name="//core:memory_store" classname="DemoBuild" /><testcase name="//core:token_forge" classname="DemoBuild"><failure message="Exit code 1">Compilation failed: missing dependency</failure></testcase><testcase name="//tests:unit_tests" classname="DemoBuild" /><testcase name="//apps:cli" classname="DemoBuild"><failure message="Exit code 2">Runtime error: configuration file not found</failure></testcase></testsuite>

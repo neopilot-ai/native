@@ -1,0 +1,16 @@
+# Common settings
+build --experimental_repo_remote_exec
+build --spawn_strategy=remote
+build --remote_download_minimal
+
+# Use Buildbarn / Remote Cache (optional override)
+# build --remote_executor=grpc://localhost:8980
+
+# Use Goma (if set up)
+# build --strategy=Python=remote
+# build --experimental_strict_action_env=true
+
+# OS-specific settings
+build:macos --cpu=darwin
+build:linux --cpu=k8
+build:windows --cpu=x64_windows

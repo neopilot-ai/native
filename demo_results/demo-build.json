@@ -1,0 +1,26 @@
+[
+  {
+    "target": "//core:memory_store",
+    "returncode": 0,
+    "stdout": "Build successful",
+    "stderr": ""
+  },
+  {
+    "target": "//core:token_forge",
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Compilation failed: missing dependency"
+  },
+  {
+    "target": "//tests:unit_tests",
+    "returncode": 0,
+    "stdout": "All tests passed",
+    "stderr": ""
+  },
+  {
+    "target": "//apps:cli",
+    "returncode": 2,
+    "stdout": "",
+    "stderr": "Runtime error: configuration file not found"
+  }
+]
