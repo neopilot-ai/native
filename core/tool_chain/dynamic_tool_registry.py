@@ -30,8 +30,9 @@ class DynamicToolRegistry:
         self._tools: Dict[str, ToolDefinition] = {}
 
     def discover_tools(self, tool_paths: List[str]):
-        """Simulates discovering tools from specified paths.""
-        """In a real system, this would involve scanning directories, parsing metadata
+        """Simulates discovering tools from specified paths.
+        
+        In a real system, this would involve scanning directories, parsing metadata
         (e.g., from Python decorators, JSON files), and dynamically loading modules.
         For this conceptual implementation, we'll load predefined dummy tools.
         """

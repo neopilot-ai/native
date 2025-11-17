@@ -1,9 +1,11 @@
 
+"""
 Conceptual AI Response Cache for LLM results.
 
 This module outlines a conceptual cache system for storing and retrieving
 responses from Large Language Models (LLMs) to minimize redundant calls
 and accelerate AI-driven workflows.
+"""
 
 
 import time
@@ -17,7 +19,6 @@ class AIResponseCache:
         # In a real system, this would be a more robust caching solution
         # (e.g., Redis, Memcached, or a persistent on-disk cache).
         self._cache: Dict[str, Dict[str, Any]] = {}
-        print("[AIResponseCache] Initialized conceptual LLM response cache.")
 
     def set(self, key: str, value: Any, ttl: int = 3600) -> None:
         """Stores a value in the cache with a given key and time-to-live (in seconds)."""
@@ -27,34 +28,35 @@ class AIResponseCache:
             "expiration_time": expiration_time,
             "timestamp": time.time()
         }
-        print(f"[AIResponseCache] Cached key '{key}' with TTL {ttl}s.")
+        # No output for cleaner testing
 
     def get(self, key: str) -> Optional[Any]:
         """Retrieves a value from the cache. Returns None if expired or not found."""
         entry = self._cache.get(key)
         if entry:
             if time.time() < entry["expiration_time"]:
-                print(f"[AIResponseCache] Cache hit for key '{key}'.")
+                # Silent cache hit
                 return entry["value"]
             else:
                 del self._cache[key]  # Expired, remove from cache
-                print(f"[AIResponseCache] Cache miss for key '{key}' (expired).")
         else:
-            print(f"[AIResponseCache] Cache miss for key '{key}' (not found).")
+            # Key not found
+            pass
         return None
 
     def invalidate(self, key: str) -> None:
         """Invalidates (removes) a specific key from the cache."""
         if key in self._cache:
             del self._cache[key]
-            print(f"[AIResponseCache] Invalidated cache for key '{key}'.")
+            # Key invalidated
         else:
-            print(f"[AIResponseCache] Key '{key}' not found in cache for invalidation.")
+            # Key not found for invalidation
+            pass
 
     def clear(self) -> None:
         """Clears the entire cache."""
         self._cache.clear()
-        print("[AIResponseCache] Cache cleared.")
+        # Cache cleared
 
 
 if __name__ == "__main__":
@@ -63,7 +65,7 @@ if __name__ == "__main__":
 
     # Store a response
     print("\n--- Storing a response ---")
-    cache.set("llm_response_1", "This is a generated code snippet.", ttl=5) # Expires in 5 seconds
+    cache.set("llm_response_1", "This is a generated code snippet.", ttl=5)  # Expires in 5 seconds
 
     # Retrieve before expiration
     print("\n--- Retrieving before expiration ---")

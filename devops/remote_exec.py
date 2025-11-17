@@ -10,8 +10,9 @@ import json as pyjson
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 import typer
 
@@ -49,6 +50,176 @@ def _write_json(results, output_path):
         pyjson.dump(results, f, indent=2)
 
 
+class BuildExecutionError(RuntimeError):
+    """Raised when a build invocation returns one or more failures."""
+
+    def __init__(self, tool: str, results):
+        super().__init__(f"{tool} command reported failures")
+        self.tool = tool
+        self.results = results
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    binaries: Sequence[str]
+    remote_flags: Sequence[str] = ()
+    default_target: str = "//..."
+    supports_remote: bool = True
+
+    @property
+    def label(self) -> str:
+        return self.name.capitalize()
+
+
+TOOL_SPECS: Dict[str, ToolSpec] = {
+    "bazel": ToolSpec(
+        name="bazel",
+        binaries=("bazel",),
+        remote_flags=("--config=remote",),
+    ),
+    "buck2": ToolSpec(
+        name="buck2",
+        binaries=("buck2",),
+        remote_flags=("--remote-execution",),
+    ),
+    "goma": ToolSpec(
+        name="goma",
+        binaries=("goma", "gomacc"),
+        default_target="//...",
+        supports_remote=False,
+    ),
+    "reclient": ToolSpec(
+        name="reclient",
+        binaries=("reclient", "reproxy"),
+        supports_remote=False,
+    ),
+}
+
+
+def _ensure_parent_directory(output_path: Optional[str]):
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_binary(tool: str, spec: ToolSpec) -> str:
+    for candidate in spec.binaries:
+        binary = shutil.which(candidate)
+        if binary:
+            return binary
+    if len(spec.binaries) == 1:
+        missing = spec.binaries[0]
+    else:
+        missing = " or ".join(spec.binaries)
+    raise FileNotFoundError(f"'{missing}' not found in PATH")
+
+
+def _format_extra_args(extra_args: Optional[Sequence[str]]) -> List[str]:
+    if not extra_args:
+        return []
+    flattened: List[str] = []
+    for arg in extra_args:
+        flattened.extend(str(arg).split())
+    return flattened
+
+
+def run_build_tool(
+    tool: str,
+    command: str,
+    targets: Optional[List[str]] = None,
+    *,
+    remote: bool = False,
+    extra_args: Optional[Sequence[str]] = None,
+    max_workers: int = 4,
+    junit_output: Optional[str] = None,
+    json_output: Optional[str] = None,
+    log: Optional[Callable[[str], None]] = None,
+    workdir: Optional[str] = None,
+):
+    """Run a build/test command for the specified tool.
+
+    Args:
+        tool: Tool identifier (bazel, buck2, goma, reclient).
+        command: Command verb (build, test, run, etc.).
+        targets: Explicit targets to execute. Defaults to tool default target.
+        remote: Whether to enable remote execution flags when supported.
+        extra_args: Additional command-line arguments.
+        max_workers: Max concurrent invocations when multiple targets.
+        junit_output: Optional path to emit JUnit XML summary.
+        json_output: Optional path to emit JSON summary.
+        log: Optional callable for streaming log messages.
+        workdir: Optional working directory for subprocess invocations.
+
+    Returns:
+        A list of dictionaries describing the individual target results.
+
+    Raises:
+        FileNotFoundError: If the required tool binary cannot be located.
+        BuildExecutionError: If any target returns a non-zero exit code.
+    """
+
+    spec = TOOL_SPECS[tool]
+    binary_path = _resolve_binary(tool, spec)
+    extra = _format_extra_args(extra_args)
+    log = log or (lambda _: None)
+    all_targets = targets or [spec.default_target]
+
+    def build_command(target: str) -> List[str]:
+        cmd = [binary_path, command, target]
+        if remote and spec.supports_remote and spec.remote_flags:
+            cmd.extend(spec.remote_flags)
+        cmd.extend(extra)
+        return cmd
+
+    results = []
+
+    def run_one(tgt: str):
+        cmd = build_command(tgt)
+        log(f"[{spec.label}] Running: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=workdir,
+        )
+        return {
+            "target": tgt,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "command": cmd,
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futs = [executor.submit(run_one, tgt) for tgt in all_targets]
+        for fut in concurrent.futures.as_completed(futs):
+            results.append(fut.result())
+
+    for res in results:
+        if res["stdout"]:
+            log(res["stdout"].rstrip())
+        if res["stderr"]:
+            log(res["stderr"].rstrip())
+
+    log(f"\n[{spec.label}] Batch Summary:")
+    for res in results:
+        log(f"  Target: {res['target']} | Exit: {res['returncode']}")
+
+    if junit_output:
+        _ensure_parent_directory(junit_output)
+        _write_junit(results, junit_output, suite_name=f"{spec.label}Build")
+        log(f"[{spec.label}] Wrote JUnit XML to {junit_output}")
+    if json_output:
+        _ensure_parent_directory(json_output)
+        _write_json(results, json_output)
+        log(f"[{spec.label}] Wrote JSON summary to {json_output}")
+
+    if any(res["returncode"] != 0 for res in results):
+        raise BuildExecutionError(spec.label, results)
+
+    return results
+
+
 # --- Bazel Integration ---
 
 
@@ -83,42 +254,26 @@ def bazel(
     """
     Run Bazel build/test/run/clean on one or more targets (in parallel if multiple).
     """
-    if not shutil.which("bazel"):
-        typer.echo("[Bazel] Error: 'bazel' not found in PATH.")
-        raise typer.Exit(1)
     all_targets = _parse_targets(target, targets, targets_file)
-    results = []
+    extra = extra_args.split() if extra_args else None
 
-    def run_one(tgt):
-        bazel_cmd = ["bazel", command, tgt]
-        if remote:
-            bazel_cmd += ["--config=remote"]
-        if extra_args:
-            bazel_cmd += extra_args.split()
-        typer.echo(f"[Bazel] Running: {' '.join(bazel_cmd)}")
-        result = subprocess.run(bazel_cmd, capture_output=True, text=True)
-        return {
-            "target": tgt,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futs = [executor.submit(run_one, tgt) for tgt in all_targets]
-        for fut in concurrent.futures.as_completed(futs):
-            results.append(fut.result())
-    # Print summary
-    typer.echo("\n[Bazel] Batch Summary:")
-    for r in results:
-        typer.echo(f"  Target: {r['target']} | Exit: {r['returncode']}")
-    if junit_output:
-        _write_junit(results, junit_output, suite_name="BazelBuild")
-        typer.echo(f"[Bazel] Wrote JUnit XML to {junit_output}")
-    if json_output:
-        _write_json(results, json_output)
-        typer.echo(f"[Bazel] Wrote JSON summary to {json_output}")
-    if any(r["returncode"] != 0 for r in results):
+    try:
+        run_build_tool(
+            "bazel",
+            command,
+            all_targets,
+            remote=remote,
+            extra_args=extra,
+            max_workers=max_workers,
+            junit_output=junit_output,
+            json_output=json_output,
+            log=typer.echo,
+        )
+    except FileNotFoundError as err:
+        typer.echo(f"[Bazel] Error: {err}")
+        raise typer.Exit(1)
+    except BuildExecutionError as err:
+        typer.echo(f"[Bazel] {err}")
         raise typer.Exit(1)
 
 
@@ -156,41 +311,26 @@ def buck2(
     """
     Run Buck2 build/test/run/clean on one or more targets (in parallel if multiple).
     """
-    if not shutil.which("buck2"):
-        typer.echo("[Buck2] Error: 'buck2' not found in PATH.")
-        raise typer.Exit(1)
     all_targets = _parse_targets(target, targets, targets_file)
-    results = []
+    extra = extra_args.split() if extra_args else None
 
-    def run_one(tgt):
-        buck2_cmd = ["buck2", command, tgt]
-        if remote:
-            buck2_cmd += ["--remote-execution"]
-        if extra_args:
-            buck2_cmd += extra_args.split()
-        typer.echo(f"[Buck2] Running: {' '.join(buck2_cmd)}")
-        result = subprocess.run(buck2_cmd, capture_output=True, text=True)
-        return {
-            "target": tgt,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futs = [executor.submit(run_one, tgt) for tgt in all_targets]
-        for fut in concurrent.futures.as_completed(futs):
-            results.append(fut.result())
-    typer.echo("\n[Buck2] Batch Summary:")
-    for r in results:
-        typer.echo(f"  Target: {r['target']} | Exit: {r['returncode']}")
-    if junit_output:
-        _write_junit(results, junit_output, suite_name="Buck2Build")
-        typer.echo(f"[Buck2] Wrote JUnit XML to {junit_output}")
-    if json_output:
-        _write_json(results, json_output)
-        typer.echo(f"[Buck2] Wrote JSON summary to {json_output}")
-    if any(r["returncode"] != 0 for r in results):
+    try:
+        run_build_tool(
+            "buck2",
+            command,
+            all_targets,
+            remote=remote,
+            extra_args=extra,
+            max_workers=max_workers,
+            junit_output=junit_output,
+            json_output=json_output,
+            log=typer.echo,
+        )
+    except FileNotFoundError as err:
+        typer.echo(f"[Buck2] Error: {err}")
+        raise typer.Exit(1)
+    except BuildExecutionError as err:
+        typer.echo(f"[Buck2] {err}")
         raise typer.Exit(1)
 
 
@@ -223,40 +363,26 @@ def goma(
     """
     Run Goma build/test on one or more targets (in parallel if multiple).
     """
-    goma_bin = shutil.which("goma") or shutil.which("gomacc")
-    if not goma_bin:
-        typer.echo("[Goma] Error: 'goma' or 'gomacc' not found in PATH.")
-        raise typer.Exit(1)
     all_targets = _parse_targets(target, targets, targets_file)
-    results = []
+    extra = extra_args.split() if extra_args else None
 
-    def run_one(tgt):
-        goma_cmd = [goma_bin, command, tgt]
-        if extra_args:
-            goma_cmd += extra_args.split()
-        typer.echo(f"[Goma] Running: {' '.join(goma_cmd)}")
-        result = subprocess.run(goma_cmd, capture_output=True, text=True)
-        return {
-            "target": tgt,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futs = [executor.submit(run_one, tgt) for tgt in all_targets]
-        for fut in concurrent.futures.as_completed(futs):
-            results.append(fut.result())
-    typer.echo("\n[Goma] Batch Summary:")
-    for r in results:
-        typer.echo(f"  Target: {r['target']} | Exit: {r['returncode']}")
-    if junit_output:
-        _write_junit(results, junit_output, suite_name="GomaBuild")
-        typer.echo(f"[Goma] Wrote JUnit XML to {junit_output}")
-    if json_output:
-        _write_json(results, json_output)
-        typer.echo(f"[Goma] Wrote JSON summary to {json_output}")
-    if any(r["returncode"] != 0 for r in results):
+    try:
+        run_build_tool(
+            "goma",
+            command,
+            all_targets,
+            remote=False,
+            extra_args=extra,
+            max_workers=max_workers,
+            junit_output=junit_output,
+            json_output=json_output,
+            log=typer.echo,
+        )
+    except FileNotFoundError as err:
+        typer.echo(f"[Goma] Error: {err}")
+        raise typer.Exit(1)
+    except BuildExecutionError as err:
+        typer.echo(f"[Goma] {err}")
         raise typer.Exit(1)
 
 
@@ -291,40 +417,26 @@ def reclient(
     """
     Run Reclient build/test on one or more targets (in parallel if multiple).
     """
-    reclient_bin = shutil.which("reclient") or shutil.which("reproxy")
-    if not reclient_bin:
-        typer.echo("[Reclient] Error: 'reclient' or 'reproxy' not found in PATH.")
-        raise typer.Exit(1)
     all_targets = _parse_targets(target, targets, targets_file)
-    results = []
+    extra = extra_args.split() if extra_args else None
 
-    def run_one(tgt):
-        reclient_cmd = [reclient_bin, command, tgt]
-        if extra_args:
-            reclient_cmd += extra_args.split()
-        typer.echo(f"[Reclient] Running: {' '.join(reclient_cmd)}")
-        result = subprocess.run(reclient_cmd, capture_output=True, text=True)
-        return {
-            "target": tgt,
-            "returncode": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futs = [executor.submit(run_one, tgt) for tgt in all_targets]
-        for fut in concurrent.futures.as_completed(futs):
-            results.append(fut.result())
-    typer.echo("\n[Reclient] Batch Summary:")
-    for r in results:
-        typer.echo(f"  Target: {r['target']} | Exit: {r['returncode']}")
-    if junit_output:
-        _write_junit(results, junit_output, suite_name="ReclientBuild")
-        typer.echo(f"[Reclient] Wrote JUnit XML to {junit_output}")
-    if json_output:
-        _write_json(results, json_output)
-        typer.echo(f"[Reclient] Wrote JSON summary to {json_output}")
-    if any(r["returncode"] != 0 for r in results):
+    try:
+        run_build_tool(
+            "reclient",
+            command,
+            all_targets,
+            remote=False,
+            extra_args=extra,
+            max_workers=max_workers,
+            junit_output=junit_output,
+            json_output=json_output,
+            log=typer.echo,
+        )
+    except FileNotFoundError as err:
+        typer.echo(f"[Reclient] Error: {err}")
+        raise typer.Exit(1)
+    except BuildExecutionError as err:
+        typer.echo(f"[Reclient] {err}")
         raise typer.Exit(1)
 
 

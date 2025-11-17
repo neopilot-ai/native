@@ -17,34 +17,73 @@ help:
 	@echo "  test-ci-output   Run CI output tests"
 
 install:
-	poetry install
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry install; \
+	else \
+		echo "Poetry not found. Installing with pip instead..."; \
+		pip3 install -r requirements.txt; \
+	fi
 
 install-dev:
-	poetry install --with dev
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry install --with dev; \
+	else \
+		echo "Poetry not found. Installing with pip instead..."; \
+		pip3 install -r requirements.txt; \
+		pip3 install pytest pytest-cov black flake8 mypy; \
+	fi
 
 build:
 	cd rust/memory_fs && cargo build
 
 test:
-	PYTHONPATH=. poetry run pytest tests/ -v
+	@if command -v poetry >/dev/null 2>&1; then \
+		PYTHONPATH=. poetry run pytest tests/ -v; \
+	else \
+		PYTHONPATH=. python3 -m pytest tests/ -v; \
+	fi
 
 run:
-	poetry run python apps/cli/main.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 apps/cli/main.py; \
+	else \
+		PYTHONPATH=. python3 apps/cli/main.py; \
+	fi
 
 commit:
-	poetry run python apps/cli/commit_agent.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 apps/cli/commit_agent.py; \
+	else \
+		PYTHONPATH=. python3 apps/cli/commit_agent.py; \
+	fi
 
 lint:
-	poetry run python devops/lint_and_format.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/lint_and_format.py; \
+	else \
+		PYTHONPATH=. python3 devops/lint_and_format.py; \
+	fi
 
 pr-title:
-	poetry run python devops/generate_git_summaries.py --pr-title
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/generate_git_summaries.py --pr-title; \
+	else \
+		PYTHONPATH=. python3 devops/generate_git_summaries.py --pr-title; \
+	fi
 
 release-notes:
-	poetry run python devops/generate_git_summaries.py --release-notes
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/generate_git_summaries.py --release-notes; \
+	else \
+		PYTHONPATH=. python3 devops/generate_git_summaries.py --release-notes; \
+	fi
 
 ci-cd:
-	poetry run python devops/generate_ci_cd.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/generate_ci_cd.py; \
+	else \
+		PYTHONPATH=. python3 devops/generate_ci_cd.py; \
+	fi
 
 clean:
 	rm -rf .pytest_cache/
@@ -59,29 +98,60 @@ zip:
 	@zip -r ai_native_systems.zip . -x "*.git*" "venv/*" "*.pyc" "__pycache__/*" ".pytest_cache/*" "*.zip"
 
 setup:
-	poetry install
-	poetry run pre-commit install
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry install && poetry run pre-commit install; \
+	else \
+		pip3 install -r requirements.txt && pip3 install pytest pytest-cov black flake8 mypy pre-commit; \
+	fi
 
 update-todo:
-	poetry run python devops/update_todo.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/update_todo.py; \
+	else \
+		PYTHONPATH=. python3 devops/update_todo.py; \
+	fi
 
 install-hooks:
-	poetry run pre-commit install
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run pre-commit install; \
+	else \
+		pre-commit install; \
+	fi
 
 ci-update-todo:
-	poetry run python devops/update_todo.py
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/update_todo.py; \
+	else \
+		PYTHONPATH=. python3 devops/update_todo.py; \
+	fi
 
 bazel-remote:
-	poetry run python devops/remote_exec.py bazel build //... --remote
+    @if command -v poetry >/dev/null 2>&1; then \
+        poetry run python3 devops/remote_exec.py bazel build //... --config=remote; \
+    else \
+        PYTHONPATH=. python3 devops/remote_exec.py bazel build //... --config=remote; \
+    fi
 
 buck2-remote:
-	poetry run python devops/remote_exec.py buck2 build //... --remote
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py buck2 build //... --remote; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py buck2 build //... --remote; \
+	fi
 
 goma-remote:
-	poetry run python devops/remote_exec.py goma build //...
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py goma build //... --remote; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py goma build //... --remote; \
+	fi
 
 reclient-remote:
-	poetry run python devops/remote_exec.py reclient build //...
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py reclient build //... --remote; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py reclient build //... --remote; \
+	fi
 
 demo-ci-output:
 	@echo "Demonstrating CI Dashboard Output functionality..."
@@ -93,13 +163,29 @@ test-ci-output:
 
 # CI Dashboard targets with output generation
 bazel-ci:
-	poetry run python devops/remote_exec.py bazel build //... --junit-output=test-results/bazel-build.xml --json-output=test-results/bazel-build.json
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py bazel build //... --junit-output=test-results/bazel-build.xml --json-output=test-results/bazel-build.json; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py bazel build //... --junit-output=test-results/bazel-build.xml --json-output=test-results/bazel-build.json; \
+	fi
 
 buck2-ci:
-	poetry run python devops/remote_exec.py buck2 build //... --junit-output=test-results/buck2-build.xml --json-output=test-results/buck2-build.json
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py buck2 build //... --junit-output=test-results/buck2-build.xml --json-output=test-results/buck2-build.json; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py buck2 build //... --junit-output=test-results/buck2-build.xml --json-output=test-results/buck2-build.json; \
+	fi
 
 goma-ci:
-	poetry run python devops/remote_exec.py goma build //... --junit-output=test-results/goma-build.xml --json-output=test-results/goma-build.json
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py goma build //... --junit-output=test-results/goma-build.xml --json-output=test-results/goma-build.json; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py goma build //... --junit-output=test-results/goma-build.xml --json-output=test-results/goma-build.json; \
+	fi
 
 reclient-ci:
-	poetry run python devops/remote_exec.py reclient build //... --junit-output=test-results/reclient-build.xml --json-output=test-results/reclient-build.json
+	@if command -v poetry >/dev/null 2>&1; then \
+		poetry run python3 devops/remote_exec.py reclient build //... --junit-output=test-results/reclient-build.xml --json-output=test-results/reclient-build.json; \
+	else \
+		PYTHONPATH=. python3 devops/remote_exec.py reclient build //... --junit-output=test-results/reclient-build.xml --json-output=test-results/reclient-build.json; \
+	fi

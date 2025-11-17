@@ -1,5 +1,5 @@
 spacy==3.7.2
-typer==0.16.0
+typer>=0.3.0,<0.10.0
 faiss-cpu==1.7.4
 sentence-transformers==2.6.1
 pytest==8.0.0

@@ -17,6 +17,7 @@ from core.eval_core.scorer import OutputScorer
 from core.meta_prompting.self_reflection import self_reflect
 from core.tool_chain.executor import ToolExecutor
 from orchestration.debugger import WorkflowDebugger
+from shared.utils.redaction import collect_sensitive_configs
 
 
 class AgentRole(str, Enum):
@@ -185,6 +186,12 @@ class MultiAgentOrchestrator:
             "Simulate running code in a secure sandbox for runtime error detection",
             permissions=["execute"],
         )
+        self.tool_executor.register_tool(
+            "collect_sensitive_configs",
+            self._collect_sensitive_configs_tool,
+            "Collect redacted sensitive configuration files for context",
+            permissions=["read"],
+        )
 
         # Conceptual: Load tools from the dynamic registry
         print("\n[Orchestrator] Loading tools from dynamic registry...")
@@ -277,6 +284,12 @@ class MultiAgentOrchestrator:
             return "Sandbox execution report: Runtime issues detected:\n" + "\n".join(runtime_issues)
         else:
             return "Sandbox execution report: No critical runtime errors detected."
+
+    def _collect_sensitive_configs_tool(self, root: str, limit: int = 5) -> Dict[str, str]:
+        try:
+            return collect_sensitive_configs(Path(root), limit=limit)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            return {"error": str(exc)}
 
     def orchestrate_development_workflow(
         self,
@@ -654,7 +667,7 @@ def code_generator_strategy(prompt: str, context: AgentContext) -> str:
 {context_info}
 
 def example_function():
-    """Example implementation based on the request."""
+    \"\"\"Example implementation based on the request.\"\"\"
     try:
         # TODO: Implement actual functionality
         result = "Hello from generated code"
