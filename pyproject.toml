@@ -7,21 +7,21 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-spacy = "^3.7.2"
-typer = "^0.16.0"
-faiss-cpu = "^1.7.4"
-sentence-transformers = "^2.6.1"
+spacy = "^3.8.9"
+typer = "^0.20.0"
+faiss-cpu = "^1.13.0"
+sentence-transformers = "^5.1.2"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.0.0"
+pytest = "^9.0.1"
 pytest-json-report = "^1.5.0"
-black = "^24.3.0"
-isort = "^5.13.0"
-flake8 = "^7.0.0"
-pre-commit = "^3.6.0"
+black = "^25.11.0"
+isort = "^7.0.0"
+flake8 = "^7.3.0"
+pre-commit = "^4.4.0"
 sphinx = "^8.2.3"
 sphinx_rtd_theme = "^3.0.2"
-sphinx-autobuild = "^2024.10.3"
+sphinx-autobuild = "^2025.8.25"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
