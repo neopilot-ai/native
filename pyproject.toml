@@ -7,7 +7,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-spacy = "^3.8.9"
+spacy = "^3.8.11"
 typer = "^0.20.0"
 faiss-cpu = "^1.13.0"
 sentence-transformers = "^5.1.2"
@@ -18,7 +18,7 @@ pytest-json-report = "^1.5.0"
 black = "^25.11.0"
 isort = "^7.0.0"
 flake8 = "^7.3.0"
-pre-commit = "^4.4.0"
+pre-commit = "^4.5.0"
 sphinx = "^8.2.3"
 sphinx_rtd_theme = "^3.0.2"
 sphinx-autobuild = "^2025.8.25"
